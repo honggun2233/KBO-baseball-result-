@@ -12,6 +12,7 @@ import argparse
 import logging
 import time
 from datetime import date, datetime
+from pathlib import Path
 
 import schedule
 
@@ -19,10 +20,16 @@ from config import SEND_TIME
 from kbo_scraper import get_kbo_results, format_results_message
 from telegram_sender import send_message, test_connection
 
+LOG_FILE = Path(__file__).parent / "kbo_bot.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
 log = logging.getLogger(__name__)
 
