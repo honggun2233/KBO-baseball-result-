@@ -18,6 +18,7 @@ import schedule
 
 from config import SEND_TIME
 from kbo_scraper import get_kbo_results, format_results_message
+from kbo_standings import get_standings, format_standings_message
 from telegram_sender import send_message, test_connection
 
 LOG_FILE = Path(__file__).parent / "kbo_bot.log"
@@ -35,12 +36,13 @@ log = logging.getLogger(__name__)
 
 
 def send_today_results(target_date: date = None) -> None:
-    """오늘(또는 지정 날짜) KBO 결과를 수집하여 Telegram으로 전송합니다."""
+    """오늘(또는 지정 날짜) KBO 결과 + 순위를 수집하여 Telegram으로 전송합니다."""
     if target_date is None:
         target_date = date.today()
 
     log.info("KBO 결과 수집 중... (%s)", target_date.isoformat())
 
+    # 경기 결과 수집
     try:
         results = get_kbo_results(target_date)
     except RuntimeError as e:
@@ -48,11 +50,20 @@ def send_today_results(target_date: date = None) -> None:
         send_message(f"⚠️ KBO 결과 수집 실패\n{e}")
         return
 
-    message = format_results_message(results, target_date)
-    log.info("전송할 메시지:\n%s", message)
+    # 순위 수집
+    try:
+        standings = get_standings()
+    except RuntimeError as e:
+        log.warning("순위 수집 실패 (결과만 전송): %s", e)
+        standings = []
+
+    results_msg = format_results_message(results, target_date)
+    log.info("전송할 메시지:\n%s", results_msg)
 
     try:
-        send_message(message)
+        send_message(results_msg)
+        if standings:
+            send_message(format_standings_message(standings))
         log.info("✅ Telegram 전송 완료")
     except RuntimeError as e:
         log.error("Telegram 전송 실패: %s", e)

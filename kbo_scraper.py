@@ -166,6 +166,60 @@ def _parse_games(data: dict) -> list[GameResult]:
     return results
 
 
+MY_TEAM = "LG"
+
+WIN_COMMENTS = [
+    "오늘도 LG 승리! 🔥",
+    "엘지 이겼다! 최고야! 💙",
+    "승리의 쌍둥이! 파이팅! 🏆",
+]
+LOSS_COMMENTS = [
+    "오늘은 졌지만, 내일이 있다. 💙",
+    "다음 경기엔 꼭 이기자! 힘내라 LG!",
+    "아쉬운 패배... 내일을 믿어! 💙",
+]
+NO_GAME_COMMENT = "오늘 LG 경기가 없습니다."
+
+
+def _lg_comment(game: "GameResult") -> str:
+    """LG 경기 결과에 따른 한마디를 반환합니다."""
+    lg_is_home = game.home_team == MY_TEAM
+    if game.home_score is None or game.away_score is None:
+        return ""
+    lg_score = game.home_score if lg_is_home else game.away_score
+    opp_score = game.away_score if lg_is_home else game.home_score
+
+    import random
+    if lg_score > opp_score:
+        return random.choice(WIN_COMMENTS)
+    elif lg_score < opp_score:
+        return random.choice(LOSS_COMMENTS)
+    else:
+        return "무승부... 아쉽지만 선방했어! 💙"
+
+
+def _lg_summary(game: "GameResult") -> str:
+    """LG 경기 요약 블록을 반환합니다."""
+    lg_is_home = game.home_team == MY_TEAM
+    opponent = game.away_team if lg_is_home else game.home_team
+    lg_score = game.home_score if lg_is_home else game.away_score
+    opp_score = game.away_score if lg_is_home else game.home_score
+
+    if lg_score is None or opp_score is None:
+        return ""
+
+    result_icon = "🔵 승" if lg_score > opp_score else ("🔴 패" if lg_score < opp_score else "⚪ 무")
+    home_away = "홈" if lg_is_home else "원정"
+
+    lines = [
+        f"💙 *LG 트윈스 오늘의 경기* ({home_away})",
+        f"   LG {lg_score} : {opp_score} {opponent}  {result_icon}",
+        f"   📍 {game.stadium}",
+        f"   _{_lg_comment(game)}_",
+    ]
+    return "\n".join(lines)
+
+
 def format_results_message(results: list[GameResult], game_date: date = None) -> str:
     """경기 결과 목록을 Telegram 메시지 문자열로 변환합니다."""
     if game_date is None:
@@ -182,16 +236,28 @@ def format_results_message(results: list[GameResult], game_date: date = None) ->
 
     lines = []
 
+    # LG 경기 하이라이트 (종료된 경기 중에서)
+    lg_game = next(
+        (g for g in finished if MY_TEAM in (g.home_team, g.away_team)),
+        None,
+    )
+    if lg_game:
+        lines.append(_lg_summary(lg_game))
+        lines.append("")
+
     if finished:
-        lines.append("*[ 종료 ]*")
+        lines.append("*[ 전체 경기 결과 ]*")
         for g in finished:
-            lines.append(str(g))
+            # LG 경기는 강조 표시
+            marker = " 👈" if MY_TEAM in (g.home_team, g.away_team) else ""
+            lines.append(str(g) + marker)
 
     if others:
         if finished:
             lines.append("")
         lines.append("*[ 진행 / 예정 ]*")
         for g in others:
-            lines.append(str(g))
+            marker = " 👈" if MY_TEAM in (g.home_team, g.away_team) else ""
+            lines.append(str(g) + marker)
 
     return header + "\n".join(lines)
