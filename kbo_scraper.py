@@ -97,14 +97,22 @@ def get_kbo_results(game_date: date = None) -> list[GameResult]:
         "gameStatusCode": "",
     }
 
-    try:
-        resp = requests.get(url, params=params, headers=HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.RequestException as e:
-        raise RuntimeError(f"네이버 스포츠 API 요청 실패: {e}")
-    except ValueError as e:
-        raise RuntimeError(f"응답 JSON 파싱 실패: {e}")
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            resp = requests.get(url, params=params, headers=HEADERS, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except requests.RequestException as e:
+            last_error = e
+            if attempt < 3:
+                import time as _time
+                _time.sleep(5 * attempt)
+        except ValueError as e:
+            raise RuntimeError(f"응답 JSON 파싱 실패: {e}")
+    else:
+        raise RuntimeError(f"네이버 스포츠 API 요청 실패 (3회 시도): {last_error}")
 
     return _parse_games(data)
 

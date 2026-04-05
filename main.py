@@ -11,7 +11,7 @@ KBO 야구 결과 Telegram 전송 - 메인 진입점
 import argparse
 import logging
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import schedule
@@ -35,8 +35,19 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+def _all_not_started(results: list) -> bool:
+    """경기 결과가 전부 '예정' 또는 비어있으면 True."""
+    if not results:
+        return True
+    return all(not g.is_finished() and g.status == "예정" for g in results)
+
+
 def send_today_results(target_date: date = None) -> None:
-    """오늘(또는 지정 날짜) KBO 결과 + 순위를 수집하여 Telegram으로 전송합니다."""
+    """KBO 결과 + 순위를 수집하여 Telegram으로 전송합니다.
+
+    target_date 미지정 시 오늘 날짜를 사용하되,
+    당일 경기가 전부 '예정' 상태이면 전날 결과를 대신 전송합니다.
+    """
     if target_date is None:
         target_date = date.today()
 
@@ -49,6 +60,21 @@ def send_today_results(target_date: date = None) -> None:
         log.error("결과 수집 실패: %s", e)
         send_message(f"⚠️ KBO 결과 수집 실패\n{e}")
         return
+
+    # 당일 경기가 전부 예정(아직 시작 전)이면 전날 결과로 대체
+    if _all_not_started(results):
+        fallback_date = target_date - timedelta(days=1)
+        log.info(
+            "당일(%s) 경기가 아직 예정 상태 → 전날(%s) 결과로 대체",
+            target_date.isoformat(), fallback_date.isoformat(),
+        )
+        try:
+            results = get_kbo_results(fallback_date)
+            target_date = fallback_date
+        except RuntimeError as e:
+            log.error("전날 결과 수집도 실패: %s", e)
+            send_message(f"⚠️ KBO 결과 수집 실패\n{e}")
+            return
 
     # 순위 수집
     try:
