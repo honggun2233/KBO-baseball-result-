@@ -17,27 +17,55 @@ class GameResult:
     status: str          # "종료", "경기중", "예정", "취소" 등
     start_time: str
     stadium: str
+    game_id: str = ""          # 네이버 스포츠 game ID (미리보기 링크용)
+    home_pitcher: str = ""     # 홈팀 선발 투수 (발표된 경우)
+    away_pitcher: str = ""     # 원정팀 선발 투수 (발표된 경우)
 
     def is_finished(self) -> bool:
         return self.status == "종료"
+
+    def preview_url(self) -> str:
+        """네이버 스포츠 선발 투수 미리보기 링크"""
+        if not self.game_id:
+            return ""
+        date_str = self.game_id[:8]
+        return f"https://sports.naver.com/baseball/game/record?gameId={self.game_id}"
 
     def score_line(self) -> str:
         if self.home_score is not None and self.away_score is not None:
             return f"{self.away_score} - {self.home_score}"
         return "vs"
 
+    def pitcher_line(self) -> str:
+        """선발 투수 라인 (있을 때만)"""
+        parts = []
+        if self.away_pitcher:
+            parts.append(f"{self.away_team} {self.away_pitcher}")
+        if self.home_pitcher:
+            parts.append(f"{self.home_team} {self.home_pitcher}")
+        if parts:
+            return "   🎯 " + " / ".join(parts)
+        return ""
+
     def __str__(self) -> str:
         score = self.score_line()
+        pitcher = self.pitcher_line()
         if self.is_finished():
-            return (
-                f"⚾ {self.away_team} {score} {self.home_team}\n"
-                f"   📍 {self.stadium}"
-            )
+            lines = [
+                f"⚾ {self.away_team} {score} {self.home_team}",
+                f"   📍 {self.stadium}",
+            ]
+            if pitcher:
+                lines.append(pitcher)
+            return "\n".join(lines)
         else:
-            return (
-                f"⚾ {self.away_team} vs {self.home_team}  [{self.status}]\n"
-                f"   🕐 {self.start_time}  📍 {self.stadium}"
-            )
+            lines = [
+                f"⚾ {self.away_team} vs {self.home_team}  [{self.status}]",
+                f"   🕐 {self.start_time}  📍 {self.stadium}",
+            ]
+            if pitcher:
+                lines.append(pitcher)
+            return "\n".join(lines)
 
 
 # 팀 코드 → 한글 팀명 매핑
@@ -166,6 +194,7 @@ def _parse_games(data: dict) -> list[GameResult]:
                     status=STATUS_MAP.get(status_code, status_code),
                     start_time=start_time,
                     stadium=game.get("stadium", ""),
+                    game_id=game.get("gameId", ""),
                 )
             )
         except (KeyError, ValueError, TypeError):
@@ -266,6 +295,11 @@ def format_results_message(results: list[GameResult], game_date: date = None) ->
         lines.append("*[ 진행 / 예정 ]*")
         for g in others:
             marker = " 👈" if MY_TEAM in (g.home_team, g.away_team) else ""
-            lines.append(str(g) + marker)
+            game_line = str(g) + marker
+            # 예정 경기에 선발 투수 미리보기 링크 추가
+            if g.status == "예정" and g.game_id:
+                url = g.preview_url()
+                game_line += f"\n   [🔍 선발 미리보기]({url})"
+            lines.append(game_line)
 
     return header + "\n".join(lines)
