@@ -42,11 +42,12 @@ def _all_not_started(results: list) -> bool:
     return all(not g.is_finished() and g.status == "예정" for g in results)
 
 
-def send_today_results(target_date: date = None) -> None:
+def send_today_results(target_date: date = None, force_date: bool = False) -> None:
     """KBO 결과 + 순위를 수집하여 Telegram으로 전송합니다.
 
     target_date 미지정 시 오늘 날짜를 사용하되,
     당일 경기가 전부 '예정' 상태이면 전날 결과를 대신 전송합니다.
+    force_date=True 이면 fallback 없이 지정 날짜 그대로 전송합니다.
     """
     if target_date is None:
         target_date = date.today()
@@ -62,7 +63,8 @@ def send_today_results(target_date: date = None) -> None:
         return
 
     # 당일 경기가 전부 예정(아직 시작 전)이면 전날 결과로 대체
-    if _all_not_started(results):
+    # (명시적으로 날짜를 지정한 경우엔 fallback 하지 않음)
+    if not force_date and _all_not_started(results):
         fallback_date = target_date - timedelta(days=1)
         log.info(
             "당일(%s) 경기가 아직 예정 상태 → 전날(%s) 결과로 대체",
@@ -125,7 +127,7 @@ def main() -> None:
         except ValueError:
             print("날짜 형식 오류. 예: --date 2025-03-30")
             return
-        send_today_results(target)
+        send_today_results(target, force_date=True)
         return
 
     if args.now:
