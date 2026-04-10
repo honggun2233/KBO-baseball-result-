@@ -171,15 +171,21 @@ def _parse_games(data: dict) -> list[GameResult]:
 
             # 실제 API 필드명: statusCode (gameStatusCode 아님)
             # cancel: true 이면 statusCode가 BEFORE여도 취소 처리
-            if game.get("cancel"):
+            is_cancelled = bool(game.get("cancel"))
+            if is_cancelled:
                 status_code = "CANCEL"
             else:
                 status_code = game.get("statusCode") or game.get("gameStatusCode", "BEFORE")
 
-            home_score_raw = game.get("homeTeamScore")
-            away_score_raw = game.get("awayTeamScore")
-            home_score = int(home_score_raw) if home_score_raw is not None else None
-            away_score = int(away_score_raw) if away_score_raw is not None else None
+            # 취소 경기는 점수를 None으로 처리 (0점이 아님)
+            if is_cancelled:
+                home_score = None
+                away_score = None
+            else:
+                home_score_raw = game.get("homeTeamScore")
+                away_score_raw = game.get("awayTeamScore")
+                home_score = int(home_score_raw) if home_score_raw is not None else None
+                away_score = int(away_score_raw) if away_score_raw is not None else None
 
             # gameDateTime 형식: "2026-04-01T18:30:00" (타임존 없음)
             dt_raw = game.get("gameDateTime") or game.get("gameStartTime", "")
@@ -314,5 +320,13 @@ def format_results_message(results: list[GameResult], game_date: date = None) ->
                 url = g.preview_url()
                 game_line += f"\n   [🔍 선발 미리보기]({url})"
             lines.append(game_line)
+
+    # 일부 취소/연기 경기가 있으면 별도 섹션으로 표시
+    if cancelled and (finished or others):
+        lines.append("")
+        lines.append("*[ 취소 / 연기 ]*")
+        for g in cancelled:
+            marker = " 👈" if MY_TEAM in (g.home_team, g.away_team) else ""
+            lines.append(f"   {g.away_team} vs {g.home_team}  [{g.status}]{marker}")
 
     return header + "\n".join(lines)

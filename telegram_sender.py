@@ -55,10 +55,18 @@ def send_message(
     return result
 
 
+def _safe_print(text: str) -> None:
+    """인코딩 오류 없이 출력합니다 (Windows cp949 콘솔 대응)."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", errors="replace").decode("ascii"))
+
+
 def test_connection() -> bool:
     """Bot 토큰이 유효한지 확인합니다."""
     if not TELEGRAM_BOT_TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN이 설정되지 않았습니다.")
+        _safe_print("TELEGRAM_BOT_TOKEN이 설정되지 않았습니다.")
         return False
 
     url = TELEGRAM_API_BASE.format(token=TELEGRAM_BOT_TOKEN, method="getMe")
@@ -67,11 +75,11 @@ def test_connection() -> bool:
         data = resp.json()
         if data.get("ok"):
             bot_name = data["result"].get("username")
-            print(f"✅ Bot 연결 성공: @{bot_name}")
+            _safe_print(f"[OK] Bot 연결 성공: @{bot_name}")
             return True
         else:
-            print(f"❌ Bot 연결 실패: {data.get('description')}")
+            _safe_print(f"[FAIL] Bot 연결 실패: {data.get('description')}")
             return False
     except requests.RequestException as e:
-        print(f"❌ 네트워크 오류: {e}")
+        _safe_print(f"[ERROR] 네트워크 오류: {e}")
         return False

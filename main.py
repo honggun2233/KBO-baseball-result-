@@ -36,6 +36,7 @@ def _read_last_sent() -> date | None:
 def _write_last_sent(d: date) -> None:
     LAST_SENT_FILE.write_text(d.isoformat(), encoding="utf-8")
 
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -55,11 +56,11 @@ def _all_cancelled(results: list) -> bool:
     return all(g.status in ("취소", "연기") for g in results)
 
 
-def _all_not_started(results: list) -> bool:
-    """경기 결과가 전부 '예정' 또는 비어있으면 True (취소 제외)."""
+def _has_no_result(results: list) -> bool:
+    """종료된 경기가 하나도 없으면 True (예정/취소/연기/빈 목록 포함)."""
     if not results:
         return True
-    return all(g.status == "예정" for g in results)
+    return not any(g.is_finished() for g in results)
 
 
 def send_today_results(target_date: date = None, force_date: bool = False) -> None:
@@ -100,8 +101,8 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
                 log.error("Telegram 전송 실패: %s", e)
             return
 
-        elif _all_not_started(results):
-            # 아직 시작 전 → 가장 최근 종료된 날 결과로 대체
+        elif _has_no_result(results):
+            # 종료 경기 없음(예정/취소 혼재 포함) → 가장 최근 종료된 날 결과로 대체
             last_sent = _read_last_sent()
             for days_back in range(1, 8):
                 fallback_date = target_date - timedelta(days=days_back)
@@ -113,7 +114,7 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
                     )
                     return
                 log.info(
-                    "당일(%s) 경기 예정 상태 → %s 결과로 대체 시도",
+                    "당일(%s) 결과 없음 → %s 결과로 대체 시도",
                     target_date.isoformat(), fallback_date.isoformat(),
                 )
                 try:
@@ -121,7 +122,7 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
                 except RuntimeError as e:
                     log.warning("%s 결과 수집 실패, 계속 탐색: %s", fallback_date.isoformat(), e)
                     continue
-                if not _all_not_started(fallback_results) and not _all_cancelled(fallback_results):
+                if not _has_no_result(fallback_results):
                     results = fallback_results
                     target_date = fallback_date
                     break
