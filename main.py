@@ -22,6 +22,19 @@ from kbo_standings import get_standings, format_standings_message
 from telegram_sender import send_message, test_connection
 
 LOG_FILE = Path(__file__).parent / "kbo_bot.log"
+LAST_SENT_FILE = Path(__file__).parent / "last_sent_date.txt"
+
+
+def _read_last_sent() -> date | None:
+    """마지막으로 전송한 결과 날짜를 읽습니다."""
+    try:
+        return date.fromisoformat(LAST_SENT_FILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def _write_last_sent(d: date) -> None:
+    LAST_SENT_FILE.write_text(d.isoformat(), encoding="utf-8")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,8 +59,8 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
     """KBO 결과 + 순위를 수집하여 Telegram으로 전송합니다.
 
     target_date 미지정 시 오늘 날짜를 사용하되,
-    당일 경기가 전부 '예정' 상태이면 전날 결과를 대신 전송합니다.
-    force_date=True 이면 fallback 없이 지정 날짜 그대로 전송합니다.
+    당일 경기가 전부 '예정' 상태이면 가장 최근 종료된 날 결과를 대신 전송합니다.
+    force_date=True 이면 fallback 및 중복 체크 없이 지정 날짜 그대로 전송합니다.
     """
     if target_date is None:
         target_date = date.today()
@@ -83,6 +96,12 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
         else:
             log.warning("최근 7일 내 종료된 경기를 찾지 못해 오늘 일정을 그대로 전송합니다.")
 
+    # 중복 전송 방지: --date 지정이 아닐 때, 이미 같은 날 결과를 보냈으면 건너뜀
+    if not force_date:
+        last_sent = _read_last_sent()
+        if last_sent == target_date:
+            log.info("이미 %s 결과를 전송했습니다. 중복 전송 건너뜀.", target_date.isoformat())
+            return
 
     # 순위 수집
     try:
@@ -98,6 +117,8 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
         send_message(results_msg)
         if standings:
             send_message(format_standings_message(standings))
+        if not force_date:
+            _write_last_sent(target_date)
         log.info("✅ Telegram 전송 완료")
     except RuntimeError as e:
         log.error("Telegram 전송 실패: %s", e)
