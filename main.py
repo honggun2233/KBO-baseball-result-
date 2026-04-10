@@ -48,11 +48,18 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+def _all_cancelled(results: list) -> bool:
+    """경기 결과가 전부 취소/연기이면 True."""
+    if not results:
+        return False
+    return all(g.status in ("취소", "연기") for g in results)
+
+
 def _all_not_started(results: list) -> bool:
-    """경기 결과가 전부 '예정' 또는 비어있으면 True."""
+    """경기 결과가 전부 '예정' 또는 비어있으면 True (취소 제외)."""
     if not results:
         return True
-    return all(not g.is_finished() and g.status == "예정" for g in results)
+    return all(g.status == "예정" for g in results)
 
 
 def send_today_results(target_date: date = None, force_date: bool = False) -> None:
@@ -75,26 +82,51 @@ def send_today_results(target_date: date = None, force_date: bool = False) -> No
         send_message(f"⚠️ KBO 결과 수집 실패\n{e}")
         return
 
-    # 당일 경기가 전부 예정(아직 시작 전)이면 가장 최근 종료된 날 결과로 대체
-    # (명시적으로 날짜를 지정한 경우엔 fallback 하지 않음)
-    if not force_date and _all_not_started(results):
-        for days_back in range(1, 8):  # 최대 7일 전까지 탐색
-            fallback_date = target_date - timedelta(days=days_back)
-            log.info(
-                "당일(%s) 경기가 아직 예정 상태 → %s 결과로 대체 시도",
-                target_date.isoformat(), fallback_date.isoformat(),
-            )
+    if not force_date:
+        if _all_cancelled(results):
+            # 전체 취소 → 취소 알림만 전송 (fallback 없음)
+            log.info("당일(%s) 경기 전체 취소 → 취소 알림 전송", target_date.isoformat())
+            last_sent = _read_last_sent()
+            if last_sent == target_date:
+                log.info("이미 %s 취소 알림을 전송했습니다. 건너뜀.", target_date.isoformat())
+                return
+            msg = format_results_message(results, target_date)
+            log.info("전송할 메시지:\n%s", msg)
             try:
-                fallback_results = get_kbo_results(fallback_date)
+                send_message(msg)
+                _write_last_sent(target_date)
+                log.info("✅ Telegram 전송 완료")
             except RuntimeError as e:
-                log.warning("%s 결과 수집 실패, 계속 탐색: %s", fallback_date.isoformat(), e)
-                continue
-            if not _all_not_started(fallback_results):
-                results = fallback_results
-                target_date = fallback_date
-                break
-        else:
-            log.warning("최근 7일 내 종료된 경기를 찾지 못해 오늘 일정을 그대로 전송합니다.")
+                log.error("Telegram 전송 실패: %s", e)
+            return
+
+        elif _all_not_started(results):
+            # 아직 시작 전 → 가장 최근 종료된 날 결과로 대체
+            last_sent = _read_last_sent()
+            for days_back in range(1, 8):
+                fallback_date = target_date - timedelta(days=days_back)
+                # last_sent 이하 날짜는 이미 전송(또는 취소 알림) 완료 → 더 이상 탐색 불필요
+                if last_sent and fallback_date <= last_sent:
+                    log.info(
+                        "%s 이미 전송 완료된 날짜(%s) 이하 → fallback 중단",
+                        fallback_date.isoformat(), last_sent.isoformat(),
+                    )
+                    return
+                log.info(
+                    "당일(%s) 경기 예정 상태 → %s 결과로 대체 시도",
+                    target_date.isoformat(), fallback_date.isoformat(),
+                )
+                try:
+                    fallback_results = get_kbo_results(fallback_date)
+                except RuntimeError as e:
+                    log.warning("%s 결과 수집 실패, 계속 탐색: %s", fallback_date.isoformat(), e)
+                    continue
+                if not _all_not_started(fallback_results) and not _all_cancelled(fallback_results):
+                    results = fallback_results
+                    target_date = fallback_date
+                    break
+            else:
+                log.warning("최근 7일 내 종료된 경기를 찾지 못해 오늘 일정을 그대로 전송합니다.")
 
     # 중복 전송 방지: --date 지정이 아닐 때, 이미 같은 날 결과를 보냈으면 건너뜀
     if not force_date:

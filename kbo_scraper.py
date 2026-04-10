@@ -170,7 +170,11 @@ def _parse_games(data: dict) -> list[GameResult]:
             )
 
             # 실제 API 필드명: statusCode (gameStatusCode 아님)
-            status_code = game.get("statusCode") or game.get("gameStatusCode", "BEFORE")
+            # cancel: true 이면 statusCode가 BEFORE여도 취소 처리
+            if game.get("cancel"):
+                status_code = "CANCEL"
+            else:
+                status_code = game.get("statusCode") or game.get("gameStatusCode", "BEFORE")
 
             home_score_raw = game.get("homeTeamScore")
             away_score_raw = game.get("awayTeamScore")
@@ -269,7 +273,16 @@ def format_results_message(results: list[GameResult], game_date: date = None) ->
         return header + "\n경기 정보가 없습니다."
 
     finished = [g for g in results if g.is_finished()]
-    others = [g for g in results if not g.is_finished()]
+    cancelled = [g for g in results if g.status in ("취소", "연기")]
+    others = [g for g in results if not g.is_finished() and g.status not in ("취소", "연기")]
+
+    # 전체 취소/연기된 날
+    if not finished and cancelled and not others:
+        lines = ["☔ 오늘 경기가 모두 취소/연기됐습니다."]
+        for g in cancelled:
+            marker = " 👈" if MY_TEAM in (g.home_team, g.away_team) else ""
+            lines.append(f"   {g.away_team} vs {g.home_team}  [{g.status}]{marker}")
+        return header + "\n".join(lines)
 
     lines = []
 
